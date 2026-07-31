@@ -106,6 +106,14 @@ port_forward() {
 }
 
 open_harbor() {
+  # Inside the cluster there is nothing to forward: the Service resolves directly,
+  # and a preset HARBOR_BASE is how the caller says so. This is what lets one copy
+  # of this script run both from a laptop and from a Job in the cluster, instead of
+  # a second copy quietly drifting from the first.
+  if [[ -n "${HARBOR_BASE:-}" ]]; then
+    say "using preset HARBOR_BASE=${HARBOR_BASE}"
+    return 0
+  fi
   port_forward "${HARBOR_NAMESPACE}" "${HARBOR_SERVICE}" 80
   HARBOR_BASE="http://127.0.0.1:${PF_PORT}"
 }

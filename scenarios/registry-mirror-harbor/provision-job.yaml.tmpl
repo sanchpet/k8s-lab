@@ -1,0 +1,61 @@
+# The provisioning run as a Job inside the cluster, which is the shape it has to
+# take in a real deployment: the registry's projects live in its own database, so
+# nothing in the chart or in any manifest declares them, and a laptop running a
+# script is not a deployment mechanism.
+#
+# The Argo CD hook annotations are inert without Argo, and deliberately kept here
+# anyway — this file is meant to be the artefact a GitOps deployment reuses, not a
+# stand-only imitation of one. PostSync is the right phase: it runs once the
+# application is synced and the registry is actually up, it fans out with the same
+# ApplicationSet that deploys the registry, and because it re-runs on every sync an
+# idempotent script stops being an initialiser and becomes a reconciler — which is
+# the only answer we have to configuration drift that nothing else can see.
+#
+# The credential is read from the secret the chart already created. A second copy
+# of an admin password is a second thing to rotate.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-provision
+  namespace: ${HARBOR_NAMESPACE}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {app: harbor-provision}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: provision
+          # Installing packages at runtime is acceptable on a stand and wrong in a
+          # fleet: it needs egress to a package mirror during what is supposed to be
+          # a recovery step, and this image would itself be pulled through the very
+          # mirror the Job is configuring. Bake curl and jq into an image instead.
+          image: alpine:3.20
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl jq bash >/dev/null
+              exec bash /scripts/provision-projects.sh
+          env:
+            # Set, therefore no port-forward: the script talks to the Service directly.
+            - name: HARBOR_BASE
+              value: http://${HARBOR_SERVICE}.${HARBOR_NAMESPACE}.svc.${CLUSTER_DOMAIN}
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: harbor-core, key: HARBOR_ADMIN_PASSWORD}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 64Mi}
+      volumes:
+        # Built from the same files the local run uses, so the two cannot diverge.
+        - name: scripts
+          configMap: {name: harbor-provision-scripts}

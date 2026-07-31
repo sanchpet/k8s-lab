@@ -23,7 +23,9 @@ set -euo pipefail
 
 # shellcheck disable=SC2034  # read by pass()/fail() in _lib.sh
 CHECK_NAME="provision"
-require_tools kubectl curl jq
+# kubectl is only needed to open a tunnel; in-cluster there is nothing to tunnel.
+require_tools curl jq
+[[ -n "${HARBOR_BASE:-}" ]] || require_tools kubectl
 
 open_harbor
 

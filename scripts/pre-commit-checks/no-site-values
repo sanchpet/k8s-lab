@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Pre-commit guard: refuse to commit anything that carries a value from .env.
+#
+# Credential scanners are the wrong instrument for the risk this repo actually
+# carries. The dangerous strings here are not secrets — a DNS domain, a service
+# address, a cluster name — and no entropy or pattern rule flags them. What marks
+# a value as site-specific is precisely that it differs from the generic one in
+# .env.example, so that difference is what this hook enforces.
+#
+# The repo is public, so a miss is not recoverable by a later commit.
+set -euo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+ENV_FILE="$REPO_ROOT/.env"
+EXAMPLE_FILE="$REPO_ROOT/.env.example"
+
+[ -f "$ENV_FILE" ] || exit 0   # nothing local to leak
+
+# Added lines only: a deletion cannot introduce anything.
+added=$(git diff --cached -U0 --no-color | grep '^+' | grep -v '^+++' || true)
+[ -n "$added" ] || exit 0
+
+example_value() {
+  sed -n "s/^$1=//p" "$EXAMPLE_FILE" | head -1
+}
+
+status=0
+while IFS='=' read -r key value; do
+  case $key in ''|\#*) continue ;; esac
+  value=${value%\"}; value=${value#\"}
+  # Short values collide with ordinary words and port numbers; they are also not
+  # identifying on their own.
+  [ ${#value} -ge 4 ] || continue
+  [ "$value" != "$(example_value "$key")" ] || continue
+
+  if printf '%s\n' "$added" | grep -qF -- "$value"; then
+    printf 'refusing to commit: value of %s from .env appears in staged content\n' "$key" >&2
+    git diff --cached --name-only | while read -r f; do
+      if git show ":$f" 2>/dev/null | grep -qF -- "$value"; then printf '  %s\n' "$f" >&2; fi
+    done
+    status=1
+  fi
+done <"$ENV_FILE"
+
+# shellcheck disable=SC2016  # ${VARIABLE} is literal advice to the reader
+[ $status -eq 0 ] || printf '\nMove the value behind a ${VARIABLE} and keep the real one in .env.\n' >&2
+exit $status

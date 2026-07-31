@@ -1,0 +1,139 @@
+# Wiring mode A: an nginx shim that presents one endpoint for four upstreams.
+#
+# A Harbor proxy-cache project maps to exactly one upstream and is addressed by
+# path prefix, so a single flat endpoint has to put the prefix on somewhere. Here
+# the proxy does it and tries the projects in turn; in mode B (certs-d/) the
+# client does it and there is no chain at all.
+#
+# The shim IS the mirror endpoint: its Service takes ${MIRROR_SERVICE} and the
+# pinned ${MIRROR_CLUSTER_IP} the nodes were configured with. That means the
+# fleet can be moved onto Harbor by replacing what sits behind this address,
+# without touching a single node.
+#
+# Rendered by envsubst. Nginx variables are therefore written as numeric captures
+# ($1) only: envsubst would happily expand a $name variable into nothing.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-shim
+  namespace: ${MIRROR_NAMESPACE}
+data:
+  nginx.conf: |
+    worker_processes 1;
+    events { worker_connections 1024; }
+    http {
+      access_log /dev/stdout;
+      error_log  /dev/stderr warn;
+
+      client_max_body_size 0;      # image layers have no useful size bound
+      proxy_buffering off;         # stream blobs through instead of accumulating them
+      proxy_read_timeout 300s;
+
+      # Must match expose.clusterIP.name in harbor-values.yaml.tmpl.
+      upstream harbor { server harbor.${HARBOR_NAMESPACE}.svc.${CLUSTER_DOMAIN}:80; }
+
+      # An internal redirect that itself fails must be allowed to redirect again,
+      # otherwise the chain below stops after its first hop.
+      recursive_error_pages on;
+
+      server {
+        listen ${MIRROR_PORT};
+
+        # Readiness deliberately proves only that nginx is serving. The mirror
+        # address must keep existing while Harbor restarts: containerd has the
+        # real upstream configured as its second endpoint and falls through, and
+        # it can only do that if the connection is refused or errors, not if the
+        # Service has no endpoints at all.
+        location = /healthz { return 200 "ok"; }
+
+        # The ping and the token endpoint pass straight through, unrewritten.
+        location = /v2/         { proxy_pass http://harbor/v2/; }
+        location /service/token { proxy_pass http://harbor; }
+
+        # Fallback chain: dockerhub -> gcr -> registry.k8s.io -> quay, first hit wins.
+        #
+        # Only 404 is intercepted. A 401 is not a failure here, it is the token
+        # handshake doing its job: Harbor challenges with a scope naming the
+        # project the request landed in, the client fetches a token for exactly
+        # that scope and retries. When the chain then walks past that project the
+        # token no longer matches and Harbor answers 401 again — with the next
+        # project's scope. The client re-authenticates and the walk converges
+        # after at most four rounds. Swallowing the 401 breaks that convergence
+        # and the pull fails on an image that is perfectly available.
+        #
+        # This also requires the proxy-cache projects to be public: an anonymous
+        # client has no other way to obtain a token for each scope in turn.
+        #
+        # Project names are a contract shared with provision-projects.sh and
+        # certs-d/ — change them in all three or in none.
+        location ~ ^/v2/(.*)$ {
+          proxy_intercept_errors on;
+          error_page 404 = /__gcr/$1;
+          proxy_pass http://harbor/v2/dockerhub-proxy/$1;
+        }
+        location ~ ^/__gcr/(.*)$ {
+          internal;
+          proxy_intercept_errors on;
+          error_page 404 = /__k8s/$1;
+          proxy_pass http://harbor/v2/gcr-proxy/$1;
+        }
+        location ~ ^/__k8s/(.*)$ {
+          internal;
+          proxy_intercept_errors on;
+          error_page 404 = /__quay/$1;
+          proxy_pass http://harbor/v2/k8s-proxy/$1;
+        }
+        location ~ ^/__quay/(.*)$ {
+          internal;
+          proxy_pass http://harbor/v2/quay-proxy/$1;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-shim
+  namespace: ${MIRROR_NAMESPACE}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: registry-shim}
+  template:
+    metadata:
+      labels: {app: registry-shim}
+    spec:
+      containers:
+        - name: nginx
+          # Pull this before the Service takes over the mirror address, or the
+          # shim's own image has to come through the mirror the shim provides.
+          image: nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: ${MIRROR_PORT}}]
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: ${MIRROR_PORT}}
+            initialDelaySeconds: 3
+      volumes:
+        - {name: conf, configMap: {name: registry-shim}}
+---
+# The mirror endpoint itself. containerd runs outside the pod network and
+# resolves through the node's resolver, not cluster DNS, so it was given a
+# literal address — which only works if that address is pinned here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${MIRROR_SERVICE}
+  namespace: ${MIRROR_NAMESPACE}
+spec:
+  clusterIP: ${MIRROR_CLUSTER_IP}
+  selector: {app: registry-shim}
+  ports:
+    - name: registry
+      port: ${MIRROR_PORT}
+      targetPort: ${MIRROR_PORT}

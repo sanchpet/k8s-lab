@@ -1,0 +1,14 @@
+# docker.io -> Harbor proxy-cache project dockerhub-proxy
+#
+# override_path makes containerd use the host URL's path as the registry API
+# root, so the project prefix is applied by the client and no proxy has to guess
+# which upstream an image belongs to.
+#
+# server is the fallback: containerd tries the hosts in order and falls back to
+# it, which is what keeps a dead Harbor from being a fleet outage.
+
+server = "https://registry-1.docker.io"
+
+[host."http://${HARBOR_ENDPOINT}/v2/dockerhub-proxy"]
+  capabilities = ["pull", "resolve"]
+  override_path = true

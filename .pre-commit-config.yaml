@@ -1,0 +1,51 @@
+# Run `pre-commit install` after cloning.
+#
+# The repo is public and exists to be copied, so the guards run before a commit is
+# written rather than in CI after one is pushed: a leak in a published history is
+# not repairable by a later commit.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-executables-have-shebangs
+      - id: detect-private-key
+      - id: mixed-line-ending
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [-x]
+
+  # Two leaks this repo can suffer that no generic scanner models.
+  - repo: local
+    hooks:
+      # Site-specific values are not secrets and carry no entropy: a DNS domain or a
+      # service address looks like ordinary text to gitleaks. What identifies them is
+      # that they differ from the generic value in .env.example.
+      - id: no-site-values
+        name: no site-specific values from .env in tracked files
+        entry: scripts/pre-commit-checks/no-site-values
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # .gitignore states an intent; `git add -f` ignores it, and a newly-named file
+      # was never covered by it in the first place.
+      - id: no-secret-files
+        name: no local-only files staged
+        entry: scripts/pre-commit-checks/no-secret-files
+        language: system
+        pass_filenames: false
+        always_run: true

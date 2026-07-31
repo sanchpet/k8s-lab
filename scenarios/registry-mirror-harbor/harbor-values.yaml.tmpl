@@ -1,0 +1,96 @@
+# Harbor for the stand: stateless on purpose — nothing survives a restart.
+#
+# Rendered by envsubst; every site-specific value comes from .env.
+#   helm upgrade --install harbor harbor/harbor \
+#     -n ${HARBOR_NAMESPACE} --version ${HARBOR_CHART_VERSION} -f harbor-values.yaml
+#
+# The chart creates ~5 Secrets (core, jobservice, registry htpasswd, database,
+# csrf). On a fleet where the namespace is handed over with reduced rights, a
+# missing `create secrets` is what the install dies on first.
+
+expose:
+  type: clusterIP
+  tls:
+    enabled: false          # the node already talks plain http:// with insecure_skip_verify
+  clusterIP:
+    # This name is a contract: registry-shim.yaml.tmpl and _lib.sh both address
+    # Harbor as harbor.${HARBOR_NAMESPACE}.svc.${CLUSTER_DOMAIN}.
+    name: harbor
+    ports:
+      httpPort: 80
+
+# Clients enter through the shim, which owns the mirror address the node was
+# configured with. Harbor advertises its token realm from externalURL, and the
+# client follows that realm verbatim — so if it named Harbor directly, the auth
+# leg would leave the shim and the path-prefix rewriting would not be applied to
+# the retried request. The realm must resolve back to the same door the client
+# came through.
+#
+# Wiring mode B (certs-d/, containerd rewrites the path itself) reaches Harbor
+# directly and therefore needs this pointed at Harbor instead — see certs-d/README.md.
+externalURL: http://${MIRROR_SERVICE}.${MIRROR_NAMESPACE}.svc.${CLUSTER_DOMAIN}:${MIRROR_PORT}
+
+# Everything on emptyDir. The image cache is disposable by nature, but the
+# project configuration lives in the same PostgreSQL and goes with it — which is
+# why the four proxy-cache projects are provisioned by a script and not by hand.
+persistence:
+  enabled: false
+
+trivy:
+  enabled: false            # +1-2 GiB and a CVE database the stand has no use for
+
+metrics:
+  enabled: true             # /metrics carries the baseline: hit ratio, latency, 5xx
+  serviceMonitor:
+    enabled: false          # needs the Prometheus CRDs; the stand does not install them
+
+# Resource shape follows the house rule: CPU as a request only (a CPU limit buys
+# throttling, not protection), memory request == limit (memory cannot be
+# reclaimed under pressure, so overcommitting it trades an eviction for an OOM).
+database:
+  type: internal
+  internal:
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits:   {memory: 512Mi}
+
+redis:
+  type: internal
+  internal:
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits:   {memory: 256Mi}
+
+core:
+  # Two replicas so that losing one is observable (checks/06-core-replica-loss.sh).
+  # Core is stateless — its state is in PostgreSQL and Redis — so it scales out
+  # cleanly; the registry below cannot, its cache is a node-local emptyDir.
+  # Drop to 1 to save 512Mi if the stand is memory-starved.
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits:   {memory: 512Mi}
+
+registry:
+  registry:
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits:   {memory: 512Mi}
+  controller:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits:   {memory: 128Mi}
+
+jobservice:
+  jobLoggers: [database]    # the file logger would demand a volume we do not have
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits:   {memory: 256Mi}
+
+portal:
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+    limits:   {memory: 128Mi}
+
+# Ceiling ~2.75 GiB with core at 2 replicas, ~2.25 GiB at 1. Steady state is far
+# below that; measure it on the stand rather than trusting this comment.

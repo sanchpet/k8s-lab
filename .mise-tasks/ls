@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="List methods, envs and scenarios with their declarations"
+set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/lib/resolve.sh"
+
+printf 'methods:\n'
+for d in "$REPO_ROOT"/methods/*/; do
+  [ -d "$d" ] && printf '  %s\n' "$(basename "$d")"
+done
+printf 'envs:\n'
+for d in "$REPO_ROOT"/envs/*/; do
+  [ -d "$d" ] || continue
+  printf '  %-26s method=%s\n' "$(basename "$d")" "$(env_method "$(basename "$d")")"
+done
+printf 'scenarios:\n'
+for d in "$REPO_ROOT"/scenarios/*/; do
+  [ -d "$d" ] || continue
+  printf '  %-26s envs=%s\n' "$(basename "$d")" "$(scenario_envs "$(basename "$d")")"
+done

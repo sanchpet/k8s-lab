@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Deploy a scenario onto its env"
+#USAGE arg "<scenario>"
+#USAGE arg "<env>" default=""
+set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/lib/resolve.sh"
+
+[ $# -ge 1 ] || die "usage: apply <scenario> [env]"
+scenario_context "$1" "${2:-}" >/dev/null
+script="$LAB_SCENARIO_DIR/apply.sh"
+[ -x "$script" ] || die "scenario '$1' has no executable apply.sh"
+"$script"

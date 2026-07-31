@@ -1,0 +1,7 @@
+# gcr.io -> Harbor proxy-cache project gcr-proxy
+
+server = "https://gcr.io"
+
+[host."http://${HARBOR_ENDPOINT}/v2/gcr-proxy"]
+  capabilities = ["pull", "resolve"]
+  override_path = true

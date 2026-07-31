@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Full loop for a scenario: up, apply, check"
+#USAGE arg "<scenario>"
+#USAGE arg "<env>" default=""
+set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/lib/resolve.sh"
+
+[ $# -ge 1 ] || die "usage: lab <scenario> [env]"
+name=$1
+env_name=${2:-$(scenario_envs "$1" | awk '{print $1}')}
+
+method_verb up "$env_name"
+"$REPO_ROOT/.mise-tasks/apply" "$name" "$env_name"
+"$REPO_ROOT/.mise-tasks/check" "$name" "$env_name"

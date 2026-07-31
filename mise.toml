@@ -1,0 +1,10 @@
+# Pinned so a stand is reproducible over time; kubectl stays on the global config.
+[tools]
+kind = "0.32.0"
+helm = "4.2.3"
+pre-commit = "4.6.0"
+crane = "0.20.7"
+
+# Tasks are the executable files in .mise-tasks/ — mise discovers them by directory,
+# so there is nothing to declare here. They stay plain scripts on purpose: anyone
+# without mise can run ./.mise-tasks/up directly, and `bash -x` still works.

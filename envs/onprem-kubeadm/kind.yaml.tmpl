@@ -1,0 +1,59 @@
+# Env: on-prem kubeadm cluster with a registry mirror wired into the node layer.
+#
+# Reproduces the node-level construction that matters for registry work:
+#   - non-default cluster DNS domain (upstream fleets rarely keep cluster.local)
+#   - legacy containerd mirror block, mirror first and the real upstream second
+#   - insecure_skip_verify for the in-cluster mirror served over plain HTTP
+#
+# Rendered by envsubst; every site-specific value comes from .env (see .env.example).
+# Deviation from a real fleet: kind applies containerdConfigPatches to every node,
+# while a kubeadm fleet usually scopes the mirror block to workers only.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ${CLUSTER_NAME}
+
+networking:
+  apiServerAddress: 127.0.0.1
+
+# kind's own Networking type has no dnsDomain field — the cluster domain is not
+# kind's to set. It belongs to kubeadm and to the kubelet, and both have to agree:
+# kubeadm derives the Service DNS names and CoreDNS's zone, while the kubelet writes
+# the search list into every pod's resolv.conf. Setting one without the other yields
+# a cluster whose pods search a domain nothing serves.
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    networking:
+      dnsDomain: ${CLUSTER_DOMAIN}
+  - |
+    kind: KubeletConfiguration
+    clusterDomain: ${CLUSTER_DOMAIN}
+
+nodes:
+  - role: control-plane
+    image: kindest/node:${K8S_VERSION}
+  - role: worker
+    image: kindest/node:${K8S_VERSION}
+  - role: worker
+    image: kindest/node:${K8S_VERSION}
+
+# The mirror is unreachable while the cluster boots — that is intentional.
+# Falling through to the upstream is the same behaviour a fleet relies on when
+# the mirror is down, and it is what makes "the pull succeeded" a worthless
+# assertion on its own: every check must prove the bytes came from the mirror.
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+        endpoint = ["http://${MIRROR_ENDPOINT}", "https://registry-1.docker.io"]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gcr.io"]
+        endpoint = ["http://${MIRROR_ENDPOINT}", "https://gcr.io"]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
+        endpoint = ["http://${MIRROR_ENDPOINT}", "https://registry.k8s.io"]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+        endpoint = ["http://${MIRROR_ENDPOINT}", "https://quay.io"]
+
+    [plugins."io.containerd.grpc.v1.cri".registry.configs]
+      [plugins."io.containerd.grpc.v1.cri".registry.configs."*"]
+        [plugins."io.containerd.grpc.v1.cri".registry.configs."*".tls]
+          insecure_skip_verify = true

@@ -1,0 +1,7 @@
+# registry.k8s.io -> Harbor proxy-cache project k8s-proxy
+
+server = "https://registry.k8s.io"
+
+[host."http://${HARBOR_ENDPOINT}/v2/k8s-proxy"]
+  capabilities = ["pull", "resolve"]
+  override_path = true

@@ -1,0 +1,13 @@
+# Real values live here only — never tracked.
+.env
+
+# Rendered from *.tmpl by scripts/lib/common.sh; regenerate, do not commit.
+*.rendered.yaml
+
+# Exported by methods/*/up.sh.
+kubeconfig*
+
+.DS_Store
+
+# Image archives cached by methods/*/load-image.sh.
+.cache/

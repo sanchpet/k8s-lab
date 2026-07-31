@@ -1,0 +1,7 @@
+# quay.io -> Harbor proxy-cache project quay-proxy
+
+server = "https://quay.io"
+
+[host."http://${HARBOR_ENDPOINT}/v2/quay-proxy"]
+  capabilities = ["pull", "resolve"]
+  override_path = true

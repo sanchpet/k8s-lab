@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Create (or adopt) the cluster for an env"
+#USAGE arg "<env>" default="onprem-kubeadm"
+set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/lib/resolve.sh"
+
+method_verb up "${1:-$DEFAULT_ENV}"

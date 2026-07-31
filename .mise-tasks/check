@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Run a scenario's checks"
+#USAGE arg "<scenario>"
+#USAGE arg "<env>" default=""
+set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/lib/resolve.sh"
+
+[ $# -ge 1 ] || die "usage: check <scenario> [env]"
+scenario_context "$1" "${2:-}" >/dev/null
+[ -d "$LAB_SCENARIO_DIR/checks" ] || die "scenario '$1' has no checks/"
+
+failed=0
+for c in "$LAB_SCENARIO_DIR"/checks/*.sh; do
+  [ -x "$c" ] || continue
+  log "check: $(basename "$c")"
+  # One failure must not hide the checks after it: the point of a run is the whole
+  # picture, not the first stumble.
+  "$c" || failed=$((failed + 1))
+done
+[ "$failed" -eq 0 ] || die "$failed check(s) failed"
+log "all checks passed"

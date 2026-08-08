@@ -26,11 +26,13 @@ load_env() {
   . "$env_file"
   set +a
 
-  : "${MIRROR_CLUSTER_IP:?MIRROR_CLUSTER_IP must be set in $env_file}"
-  : "${MIRROR_PORT:?MIRROR_PORT must be set in $env_file}"
-
+  # A mirror is one env's construction, not a property of every stand, so its
+  # parameters are read when present and not demanded when absent. Requiring them
+  # here would make every future env carry a registry mirror it does not have.
   # containerd addresses the mirror by ip:port; templates only ever see the pair.
-  export MIRROR_ENDPOINT="${MIRROR_CLUSTER_IP}:${MIRROR_PORT}"
+  if [ -n "${MIRROR_CLUSTER_IP:-}" ] && [ -n "${MIRROR_PORT:-}" ]; then
+    export MIRROR_ENDPOINT="${MIRROR_CLUSTER_IP}:${MIRROR_PORT}"
+  fi
 }
 
 # render <template> <output>

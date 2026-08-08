@@ -13,8 +13,6 @@ require_cmd kind docker envsubst
 load_env
 : "${CLUSTER_NAME:?CLUSTER_NAME must be set}"
 : "${CLUSTER_DOMAIN:?CLUSTER_DOMAIN must be set}"
-: "${MIRROR_SERVICE:?MIRROR_SERVICE must be set}"
-: "${MIRROR_NAMESPACE:?MIRROR_NAMESPACE must be set}"
 
 render "$ENV_DIR/kind.yaml.tmpl" "$ENV_DIR/kind.rendered.yaml"
 
@@ -31,11 +29,17 @@ kind export kubeconfig --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_PATH"
 # containerd resolves the mirror through the node's own resolver, never cluster DNS,
 # so the Service name has to exist in /etc/hosts on every node for the mirror
 # endpoint to be reachable by name.
-MIRROR_FQDN="${MIRROR_SERVICE}.${MIRROR_NAMESPACE}.svc.${CLUSTER_DOMAIN}"
-for node in $(kind get nodes --name "$CLUSTER_NAME"); do
-  docker exec "$node" sh -c \
-    "grep -qF ' ${MIRROR_FQDN}' /etc/hosts || echo '${MIRROR_CLUSTER_IP} ${MIRROR_FQDN}' >> /etc/hosts"
-done
-log "mapped $MIRROR_FQDN -> $MIRROR_CLUSTER_IP on all nodes"
+#
+# Only envs that actually wire a mirror declare these. An env without one gets a
+# plain cluster instead of a node carrying a hosts entry for a Service that will
+# never exist — the method must not assume every stand is the mirror stand.
+if [ -n "${MIRROR_SERVICE:-}" ] && [ -n "${MIRROR_NAMESPACE:-}" ] && [ -n "${MIRROR_CLUSTER_IP:-}" ]; then
+  MIRROR_FQDN="${MIRROR_SERVICE}.${MIRROR_NAMESPACE}.svc.${CLUSTER_DOMAIN}"
+  for node in $(kind get nodes --name "$CLUSTER_NAME"); do
+    docker exec "$node" sh -c \
+      "grep -qF ' ${MIRROR_FQDN}' /etc/hosts || echo '${MIRROR_CLUSTER_IP} ${MIRROR_FQDN}' >> /etc/hosts"
+  done
+  log "mapped $MIRROR_FQDN -> $MIRROR_CLUSTER_IP on all nodes"
+fi
 
 log "kubeconfig: export KUBECONFIG=$KUBECONFIG_PATH"

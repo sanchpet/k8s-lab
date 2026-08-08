@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${ESO_DEMO_NAMESPACE}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${ESO_DEMO_SA}
+  namespace: ${ESO_DEMO_NAMESPACE}
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: ServiceAccountToken
+metadata:
+  name: ${ESO_DEMO_SA}
+  namespace: ${ESO_DEMO_NAMESPACE}
+spec:
+  serviceAccountRef:
+    name: ${ESO_DEMO_SA}
+    audiences:
+      - ${ESO_DEMO_AUDIENCE}
+  # Deliberately more than the API server's cap: the point of the stand is that the
+  # request is shortened and nothing but the returned expiry says so.
+  expirationSeconds: ${ESO_DEMO_REQUESTED_SECONDS}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ${ESO_DEMO_SA}
+  namespace: ${ESO_DEMO_NAMESPACE}
+spec:
+  refreshInterval: "30m"
+  target:
+    name: ${ESO_DEMO_SECRET}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: ServiceAccountToken
+          name: ${ESO_DEMO_SA}

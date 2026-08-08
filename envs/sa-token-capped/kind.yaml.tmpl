@@ -1,0 +1,25 @@
+# Env: a plain cluster whose API server caps ServiceAccount token lifetimes.
+#
+# Reproduces the one piece of construction that matters for token issuance:
+# --service-account-max-token-expiration, which silently shortens any TokenRequest
+# asking for more. A client cannot tell it happened except by reading the expiry it
+# got back, so a stand that does not cap proves nothing about clients that assume
+# they received what they asked for.
+#
+# The node image is kind's own default on purpose. This env reproduces an API server
+# flag, not a fleet: pinning a version here would add a variable that has no bearing
+# on what the scenario measures.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ${CLUSTER_NAME}
+
+networking:
+  apiServerAddress: 127.0.0.1
+
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        - name: service-account-max-token-expiration
+          value: ${SA_TOKEN_MAX_EXPIRATION}

@@ -33,6 +33,15 @@ CACHE_DIR="$REPO_ROOT/.cache/images"
 mkdir -p "$CACHE_DIR"
 
 for image in "$@"; do
+  # An archive on disk is taken as given. A scenario that tests something it builds
+  # itself has no registry to pull from, and pushing to one only to pull it back
+  # would make the stand depend on a network round trip to prove a local change.
+  if [ -f "$image" ]; then
+    kind load image-archive --name "$CLUSTER_NAME" "$image"
+    log "loaded archive $image"
+    continue
+  fi
+
   slug=$(printf '%s@%s' "$image" "$PLATFORM" | tr '/:@' '___')
   archive="$CACHE_DIR/$slug.tar"
 

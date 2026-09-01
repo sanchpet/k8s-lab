@@ -1,0 +1,172 @@
+# One Keycloak backed by its own PostgreSQL, in the production shape that matters
+# for the rotation question: the image entrypoint is overridden, and the bootstrap
+# admin credential arrives from a Secret through the environment.
+#
+# Rendered by envsubst; the values come from .env, or from the scenario defaults in
+# _lib.sh when .env does not carry them.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${KEYCLOAK_NAMESPACE}
+---
+# The database has to outlive the Keycloak pod, or "the same Postgres" is not what
+# the experiment restarts against and the answer is about a fresh install instead.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: keycloak-db
+  namespace: ${KEYCLOAK_NAMESPACE}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db
+  namespace: ${KEYCLOAK_NAMESPACE}
+stringData:
+  POSTGRES_DB: keycloak
+  POSTGRES_USER: keycloak
+  POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-db
+  namespace: ${KEYCLOAK_NAMESPACE}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: keycloak-db }
+  template:
+    metadata:
+      labels: { app: keycloak-db }
+    spec:
+      containers:
+        - name: postgres
+          image: ${POSTGRES_IMAGE}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef: { name: keycloak-db }
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, keycloak, -d, keycloak]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: keycloak-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-db
+  namespace: ${KEYCLOAK_NAMESPACE}
+spec:
+  selector: { app: keycloak-db }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-admin
+  namespace: ${KEYCLOAK_NAMESPACE}
+stringData:
+  KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME}
+  KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: ${KEYCLOAK_NAMESPACE}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      containers:
+        - name: keycloak
+          image: ${KEYCLOAK_IMAGE}
+          imagePullPolicy: IfNotPresent
+          # The image ships its own ENTRYPOINT and production overrides it. That
+          # override is part of the subject: a wrapper script is one more place a
+          # credential can be read, cached or rewritten, and a stand that lets the
+          # entrypoint run is not testing the same thing the fleet runs.
+          command:
+            - /opt/keycloak/bin/kc.sh
+            - start
+            - --http-port=8080
+            - --hostname-strict=false
+            - --verbose
+            - --import-realm
+          env:
+            # Present in the estate's own image as build-time ENV, absent from the
+            # upstream base. Setting them here is what makes the two images
+            # interchangeable for this scenario instead of only one of them working.
+            - name: KC_DB
+              value: postgres
+            # Host / port / database rather than one KC_DB_URL: Keycloak assembles
+            # the JDBC URL from these, and a URL with credentials-shaped text in it
+            # is what a secret scanner is built to stop.
+            - name: KC_DB_URL_HOST
+              value: keycloak-db
+            - name: KC_DB_URL_PORT
+              value: "5432"
+            - name: KC_DB_URL_DATABASE
+              value: keycloak
+            - name: KC_DB_USERNAME
+              value: keycloak
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: keycloak-db, key: POSTGRES_PASSWORD }
+            # `start` refuses to serve plain HTTP unless it is asked to; the flag set
+            # above only chooses the port.
+            - name: KC_HTTP_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef: { name: keycloak-admin }
+          ports:
+            - containerPort: 8080
+          # /realms/master answers on the same listener the checks use, and needs no
+          # management port or health feature — which the upstream base does not
+          # enable and the estate's image does.
+          readinessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: ${KEYCLOAK_NAMESPACE}
+spec:
+  selector: { app: keycloak }
+  ports:
+    - port: 8080
+      targetPort: 8080

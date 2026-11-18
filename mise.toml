@@ -4,6 +4,8 @@ kind = "0.32.0"
 helm = "4.2.3"
 pre-commit = "4.6.0"
 crane = "0.20.7"
+# Builds descheduler from source for the scenarios that run it on the host.
+go = "1.27.4"
 
 # Tasks are the executable files in .mise-tasks/ — mise discovers them by directory,
 # so there is nothing to declare here. They stay plain scripts on purpose: anyone

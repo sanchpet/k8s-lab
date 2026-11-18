@@ -35,9 +35,9 @@ Port 10258 (the descheduler's metrics endpoint) must be free.
 | Check | Claim |
 |---|---|
 | `01-failing-pass-does-not-exit` | at `DESCHEDULER_VERSION` and at `DESCHEDULER_COMPARE_VERSION` the process is still running after `DESCHEDULER_LOOP_LIMIT_SECONDS`, has logged at least 10 000 token errors and used at least half the limit in CPU |
-| `02-fixed-build-exits-after-one-failed-pass` | a build from `DESCHEDULER_FIX_REF` exits on its own having logged the error once; skipped, loudly, when unset |
+| `02-fixed-build-exits-after-one-failed-pass` | a build from `DESCHEDULER_FIX_REF` exits on its own with a non-zero status after one failed pass; skipped, loudly, when unset |
 
-Reference numbers from an arm64 laptop, 10 s limit: v0.34.0 and v0.37.0 both ran to the limit, about 11 s of CPU, 3.0-3.6 million error lines, 60 MiB RSS; a build with the fix exited by itself in 0.2-1.3 s with one error line.
+Reference numbers from an arm64 laptop, 10 s limit: v0.34.0 and v0.37.0 both ran to the limit, about 11 s of CPU, 3.0-3.6 million error lines, 60 MiB RSS; a build with the fix exited by itself with status 1 in 0.2-2.4 s, reporting the error once.
 
 ## Reading the numbers
 
@@ -47,10 +47,8 @@ CPU above wall time is normal, the loop occupies a core and the logging goroutin
 
 ## Where it lies
 
-- The exit code of the fixed build is 0, as it is on the `cancel()` path of older releases, so a CronJob would see success for a failed pass.
-  The check asserts that the process ends, not that the status is informative.
-- The error is reproduced through the token path with an environment trick, not through a real pod; the claim is about the run loop, which any failing pass reaches, and not about this one error.
-- A failure inside the descheduling itself (as opposed to the token read) takes a different branch of the loop and is not exercised here.
+- The error is reproduced through the token path with an environment trick, not through a real pod. Since v0.35.0 a failed descheduling pass returns through the same branch, so the claim is about the run loop, not about this one error.
+- In v0.34.0 a failed descheduling pass took its own branch, which did exit, with status 0. Only the token path loops there, and only it is exercised.
 
 ## Parameters
 

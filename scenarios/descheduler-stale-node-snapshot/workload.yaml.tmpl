@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${DESCHEDULER_STALE_NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victims
+  namespace: ${DESCHEDULER_STALE_NAMESPACE}
+spec:
+  replicas: ${DESCHEDULER_STALE_REPLICAS}
+  selector:
+    matchLabels: {app: victims}
+  template:
+    metadata:
+      labels: {app: victims}
+    spec:
+      # All pods on one node, no tolerations: the taint then makes every one of them
+      # a violator, so the length of the pass is the number of pods on the node.
+      nodeSelector:
+        kubernetes.io/hostname: ${DESCHEDULER_STALE_NODE}
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: pause
+          image: ${DESCHEDULER_PAUSE_IMAGE}
+          resources:
+            requests: {cpu: 1m, memory: 1Mi}

@@ -1,0 +1,11 @@
+apiVersion: descheduler/v1alpha2
+kind: DeschedulerPolicy
+profiles:
+  - name: taints
+    pluginConfig:
+      - name: DefaultEvictor
+      - name: RemovePodsViolatingNodeTaints
+    plugins:
+      deschedule:
+        enabled:
+          - RemovePodsViolatingNodeTaints

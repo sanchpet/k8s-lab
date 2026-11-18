@@ -1,0 +1,17 @@
+# A Prometheus provider without authToken: the descheduler then reads the in-cluster
+# ServiceAccount token on every pass, which is the step that fails here.
+apiVersion: descheduler/v1alpha2
+kind: DeschedulerPolicy
+metricsProviders:
+  - source: Prometheus
+    prometheus:
+      url: http://127.0.0.1:9090
+profiles:
+  - name: default
+    pluginConfig:
+      - name: DefaultEvictor
+      - name: RemovePodsViolatingNodeTaints
+    plugins:
+      deschedule:
+        enabled:
+          - RemovePodsViolatingNodeTaints

@@ -1,0 +1,20 @@
+# Env: a plain kind cluster with one control plane and two schedulable workers.
+#
+# Reproduces nothing about a node layer: no mirror, no API server flags. It exists
+# for subjects that need somewhere to move pods between nodes (a rescheduler, an
+# eviction path) and nothing else. Two workers is the floor: a pass of such a
+# controller is skipped outright when fewer than two nodes are Ready.
+#
+# The node image is kind's own default, as in sa-token-capped: pinning a version here
+# would add a variable the subjects do not measure.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ${CLUSTER_NAME}
+
+networking:
+  apiServerAddress: 127.0.0.1
+
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
